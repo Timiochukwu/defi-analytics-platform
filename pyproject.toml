@@ -1,0 +1,166 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "defi-analytics-platform"
+version = "1.0.0"
+description = "Comprehensive DeFi portfolio management, yield optimization, and risk assessment platform"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "DeFi Analytics Team", email = "team@defi-analytics.com"}
+]
+keywords = ["defi", "blockchain", "ethereum", "analytics", "portfolio", "yield", "risk-management"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Scientific/Engineering",
+]
+
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "web3>=6.11.0",
+    "eth-abi>=4.2.0",
+    "eth-account>=0.10.0",
+    "eth-utils>=2.3.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "aiohttp>=3.9.0",
+    "websockets>=12.0",
+    "gql>=3.4.1",
+    "requests-toolbelt>=1.0.0",
+    "python-dateutil>=2.8.2",
+    "pytz>=2023.3",
+    "scikit-learn>=1.3.0",
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.0",
+    "redis>=5.0.0",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "pydantic>=2.4.0",
+    "python-multipart>=0.0.6",
+    "streamlit>=1.28.0",
+    "plotly>=5.17.0",
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.0",
+    "python-json-logger>=2.0.7",
+    "colorlog>=6.8.0",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "tensorflow>=2.13.0",
+    "xgboost>=2.0.0",
+]
+dashboard = [
+    "dash>=2.14.0",
+    "networkx>=3.2.0",
+]
+scheduling = [
+    "schedule>=1.2.0",
+    "apscheduler>=3.10.0",
+    "celery>=5.3.0",
+]
+deployment = [
+    "docker>=6.1.0",
+    "gunicorn>=21.2.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+    "isort>=5.12.0",
+    "pre-commit>=3.3.0",
+]
+all = [
+    "defi-analytics-platform[ml,dashboard,scheduling,deployment,dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/defi-analytics-platform"
+Documentation = "https://defi-analytics.readthedocs.io"
+Repository = "https://github.com/yourusername/defi-analytics-platform"
+"Bug Tracker" = "https://github.com/yourusername/defi-analytics-platform/issues"
+
+[project.scripts]
+defi-api = "src.api.main:start_api"
+defi-dashboard = "dashboard.defi_dashboard:main"
+
+[tool.setuptools]
+packages = ["src", "src.analytics", "src.risk", "src.optimization", "src.data", "src.api"]
+
+[tool.setuptools.package-data]
+src = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --cov=src --cov-report=html --cov-report=term"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/venv/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
