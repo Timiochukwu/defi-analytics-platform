@@ -22,33 +22,37 @@ DATE: 2024
 =============================================================================
 """
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from datetime import datetime
+from collections import defaultdict
+import time
 import sys
 import os
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Note: In production, uncomment these imports after modules are available
-# from analytics.liquidity_analyzer import LiquidityAnalyzer
-# from risk.defi_risk_models import (
-#     SmartContractRiskAnalyzer,
-#     LiquidationRiskAnalyzer,
-#     SystemicRiskAnalyzer
-# )
-# from optimization.yield_optimizer import (
-#     YieldOpportunityAnalyzer,
-#     PortfolioOptimizer
-# )
-# from optimization.defi_portfolio import (
-#     PortfolioConstructor,
-#     PortfolioMonitor,
-#     PortfolioRebalancer
-# )
+# Import analytics and risk modules with error handling
+try:
+    from analytics.liquidity_analyzer import LiquidityAnalyzer
+    from risk.defi_risk_models import (
+        SmartContractRiskAnalyzer,
+        LiquidationRiskAnalyzer,
+        SystemicRiskAnalyzer
+    )
+    from optimization.yield_optimizer import (
+        YieldOpportunityAnalyzer,
+        PortfolioOptimizer
+    )
+    MODULES_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Some modules not available: {e}")
+    print("API will run in demo mode with mock data")
+    MODULES_AVAILABLE = False
 
 
 # ====================================================================================
@@ -192,14 +196,95 @@ app = FastAPI(
     }
 )
 
-# CORS middleware (allow all origins for development)
+# CORS middleware - configure allowed origins
+# For production, set CORS_ORIGINS environment variable
+allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8501").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
+
+
+# ====================================================================================
+# SECURITY: RATE LIMITING & AUTHENTICATION
+# ====================================================================================
+
+# Rate limiting storage (in-memory - use Redis in production)
+rate_limit_storage = defaultdict(list)
+
+# API key authentication (in production, use a database)
+VALID_API_KEYS = set(os.getenv("API_KEYS", "").split(",")) if os.getenv("API_KEYS") else set()
+REQUIRE_API_KEY = os.getenv("REQUIRE_API_KEY", "false").lower() == "true"
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """
+    Rate limiting middleware - 100 requests per minute per IP
+    """
+    # Get client IP
+    client_ip = request.client.host
+
+    # Rate limit configuration
+    max_requests = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "100"))
+    window_seconds = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+
+    # Clean old entries
+    current_time = time.time()
+    rate_limit_storage[client_ip] = [
+        timestamp for timestamp in rate_limit_storage[client_ip]
+        if current_time - timestamp < window_seconds
+    ]
+
+    # Check rate limit
+    if len(rate_limit_storage[client_ip]) >= max_requests:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": "Rate limit exceeded",
+                "message": f"Maximum {max_requests} requests per {window_seconds} seconds",
+                "retry_after": window_seconds
+            }
+        )
+
+    # Add current request timestamp
+    rate_limit_storage[client_ip].append(current_time)
+
+    # Continue to next middleware/endpoint
+    response = await call_next(request)
+
+    # Add rate limit headers
+    response.headers["X-RateLimit-Limit"] = str(max_requests)
+    response.headers["X-RateLimit-Remaining"] = str(max_requests - len(rate_limit_storage[client_ip]))
+    response.headers["X-RateLimit-Reset"] = str(int(current_time + window_seconds))
+
+    return response
+
+
+async def verify_api_key(x_api_key: Optional[str] = Header(None)):
+    """
+    Verify API key if authentication is required
+    """
+    if not REQUIRE_API_KEY:
+        return True
+
+    if not x_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="API key required. Provide X-API-Key header."
+        )
+
+    if x_api_key not in VALID_API_KEYS:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid API key"
+        )
+
+    return True
 
 
 # ====================================================================================
@@ -258,26 +343,52 @@ async def calculate_slippage(request: SlippageRequest):
     - Expected slippage: ~0.5%
     """
     try:
-        # In production, use actual LiquidityAnalyzer
-        # analyzer = LiquidityAnalyzer()
-        # result = analyzer.calculate_slippage_constant_product(...)
+        # Input validation
+        if request.reserve_in <= 0 or request.reserve_out <= 0:
+            raise HTTPException(status_code=400, detail="Reserves must be positive")
+        if request.amount_in <= 0:
+            raise HTTPException(status_code=400, detail="Trade amount must be positive")
+        if request.fee < 0 or request.fee >= 1:
+            raise HTTPException(status_code=400, detail="Fee must be between 0 and 1")
 
-        # Demo calculation
-        price_before = request.reserve_in / request.reserve_out
-        amount_in_with_fee = request.amount_in * (1 - request.fee)
-        amount_out = (request.reserve_out * amount_in_with_fee) / (request.reserve_in + amount_in_with_fee)
-        execution_price = request.amount_in / amount_out if amount_out > 0 else 0
-        slippage_percent = ((execution_price - price_before) / price_before * 100) if price_before > 0 else 0
+        # Use actual analyzer if available
+        if MODULES_AVAILABLE:
+            analyzer = LiquidityAnalyzer()
+            result = analyzer.calculate_slippage_constant_product(
+                reserve_in=request.reserve_in,
+                reserve_out=request.reserve_out,
+                amount_in=request.amount_in,
+                fee=request.fee
+            )
+            return {
+                "trade_size_usd": result.trade_size_usd,
+                "expected_price": round(result.expected_price, 4),
+                "execution_price": round(result.execution_price, 4),
+                "slippage_percent": round(result.slippage_percent, 3),
+                "price_impact": round(result.price_impact, 3),
+                "output_amount": round(result.output_amount, 4),
+                "rating": "Excellent" if result.slippage_percent < 0.1 else ("Good" if result.slippage_percent < 0.5 else "Moderate")
+            }
+        else:
+            # Fallback demo calculation
+            price_before = request.reserve_in / request.reserve_out
+            amount_in_with_fee = request.amount_in * (1 - request.fee)
+            amount_out = (request.reserve_out * amount_in_with_fee) / (request.reserve_in + amount_in_with_fee)
+            execution_price = request.amount_in / amount_out if amount_out > 0 else 0
+            slippage_percent = ((execution_price - price_before) / price_before * 100) if price_before > 0 else 0
 
-        return {
-            "trade_size_usd": request.amount_in,
-            "expected_price": round(price_before, 4),
-            "execution_price": round(execution_price, 4),
-            "slippage_percent": round(slippage_percent, 3),
-            "output_amount": round(amount_out, 4),
-            "rating": "Excellent" if slippage_percent < 0.1 else ("Good" if slippage_percent < 0.5 else "Moderate")
-        }
+            return {
+                "trade_size_usd": request.amount_in,
+                "expected_price": round(price_before, 4),
+                "execution_price": round(execution_price, 4),
+                "slippage_percent": round(slippage_percent, 3),
+                "output_amount": round(amount_out, 4),
+                "rating": "Excellent" if slippage_percent < 0.1 else ("Good" if slippage_percent < 0.5 else "Moderate"),
+                "mode": "demo"
+            }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

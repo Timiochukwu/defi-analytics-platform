@@ -224,7 +224,8 @@ class YieldOpportunityAnalyzer:
         self,
         lp_apy: float,
         price_change_percent: float,
-        correlation: float = 0.0
+        correlation: float = 0.0,
+        pool_weight_asset1: float = 0.5
     ) -> Dict[str, float]:
         """
         Calculate APY adjusted for impermanent loss (IL)
@@ -236,24 +237,56 @@ class YieldOpportunityAnalyzer:
         EXAMPLE:
         - Deposit: 1 ETH + 2,000 USDC (when ETH = $2,000)
         - ETH rises to $3,000
-        - IL: ~5.7% loss
+        - IL: ~5.7% loss (for 50/50 pool)
         - If LP APY is 25%, net return: 25% - 5.7% = 19.3%
 
-        FORMULA:
+        FORMULA (for 50/50 pool):
         IL = 2 * sqrt(price_ratio) / (1 + price_ratio) - 1
 
+        FORMULA (for weighted pools):
+        IL = (weight1 * price_ratio^weight1 + weight2 * 1^weight2)^(1/sum_weights) -
+             (weight1 * price_ratio + weight2 * 1)
+
         Args:
-            lp_apy: Liquidity provider APY from fees/rewards
-            price_change_percent: Expected price change of asset (e.g., 0.50 for +50%)
+            lp_apy: Liquidity provider APY from fees/rewards (e.g., 0.25 for 25%)
+            price_change_percent: Expected price change of asset 1 (e.g., 0.50 for +50%)
             correlation: Correlation between assets (0 = uncorrelated, 1 = perfect)
+            pool_weight_asset1: Weight of asset 1 in pool (default 0.5 for 50/50)
 
         Returns:
             Dictionary with IL-adjusted returns
+
+        Raises:
+            ValueError: If inputs are invalid
         """
+        # Input validation
+        if lp_apy < 0:
+            raise ValueError(f"lp_apy must be non-negative, got {lp_apy}")
+        if correlation < 0 or correlation > 1:
+            raise ValueError(f"correlation must be between 0 and 1, got {correlation}")
+        if pool_weight_asset1 <= 0 or pool_weight_asset1 >= 1:
+            raise ValueError(f"pool_weight_asset1 must be between 0 and 1, got {pool_weight_asset1}")
+
         # Calculate impermanent loss
         if correlation < 0.99:  # If not perfectly correlated
             price_ratio = 1 + price_change_percent
-            il_percent = (2 * math.sqrt(price_ratio) / (1 + price_ratio) - 1) * 100
+
+            # Handle negative price changes
+            if price_ratio <= 0:
+                raise ValueError(f"price_ratio must be positive, got {price_ratio}")
+
+            # For 50/50 pools, use simplified formula
+            if abs(pool_weight_asset1 - 0.5) < 0.01:
+                il_percent = (2 * math.sqrt(price_ratio) / (1 + price_ratio) - 1) * 100
+            else:
+                # For weighted pools (e.g., Balancer 80/20)
+                weight1 = pool_weight_asset1
+                weight2 = 1 - pool_weight_asset1
+
+                # Weighted geometric mean vs arithmetic mean
+                geometric_mean = (price_ratio ** weight1) * (1 ** weight2)
+                arithmetic_mean = weight1 * price_ratio + weight2 * 1
+                il_percent = (geometric_mean - arithmetic_mean) / arithmetic_mean * 100
         else:
             # Perfectly correlated assets (e.g., stablecoins) have no IL
             il_percent = 0
@@ -269,6 +302,7 @@ class YieldOpportunityAnalyzer:
             'impermanent_loss_percent': round(il_percent, 2),
             'adjusted_apy': round(adjusted_apy, 2),
             'breakeven_apy': round(breakeven_apy, 2),
+            'pool_weight_asset1': pool_weight_asset1,
             'is_profitable': adjusted_apy > 0,
             'recommendation': self._il_recommendation(lp_apy * 100, il_percent)
         }

@@ -499,7 +499,20 @@ class LiquidationRiskAnalyzer:
 
         Returns:
             LiquidationRisk assessment
+
+        Raises:
+            ValueError: If inputs are invalid
         """
+        # Input validation
+        if collateral_value_usd < 0:
+            raise ValueError(f"collateral_value_usd must be non-negative, got {collateral_value_usd}")
+        if debt_value_usd < 0:
+            raise ValueError(f"debt_value_usd must be non-negative, got {debt_value_usd}")
+        if liquidation_threshold is not None and (liquidation_threshold <= 0 or liquidation_threshold > 1):
+            raise ValueError(f"liquidation_threshold must be between 0 and 1, got {liquidation_threshold}")
+        if liquidation_penalty is not None and (liquidation_penalty < 0 or liquidation_penalty > 1):
+            raise ValueError(f"liquidation_penalty must be between 0 and 1, got {liquidation_penalty}")
+
         # Get protocol parameters
         if liquidation_threshold is None or liquidation_penalty is None:
             params = self._get_protocol_params(protocol_name, asset)

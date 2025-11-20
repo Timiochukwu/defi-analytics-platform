@@ -189,7 +189,22 @@ class LiquidityAnalyzer:
 
         Returns:
             SlippageResult with execution price and slippage %
+
+        Raises:
+            ValueError: If any inputs are invalid (negative, zero, or too large)
         """
+        # Input validation
+        if reserve_in <= 0:
+            raise ValueError(f"reserve_in must be positive, got {reserve_in}")
+        if reserve_out <= 0:
+            raise ValueError(f"reserve_out must be positive, got {reserve_out}")
+        if amount_in <= 0:
+            raise ValueError(f"amount_in must be positive, got {amount_in}")
+        if fee < 0 or fee >= 1:
+            raise ValueError(f"fee must be between 0 and 1, got {fee}")
+        if amount_in >= reserve_in * 0.99:
+            raise ValueError(f"amount_in ({amount_in}) cannot be >= 99% of reserve_in ({reserve_in})")
+
         # Current price (before trade)
         price_before = reserve_in / reserve_out
 
@@ -429,7 +444,20 @@ class LiquidityAnalyzer:
 
         Returns:
             Dictionary with component scores and overall score
+
+        Raises:
+            ValueError: If inputs are invalid
         """
+        # Input validation
+        if tvl < 0:
+            raise ValueError(f"tvl must be non-negative, got {tvl}")
+        if volume_24h < 0:
+            raise ValueError(f"volume_24h must be non-negative, got {volume_24h}")
+        if fee_tier < 0:
+            raise ValueError(f"fee_tier must be non-negative, got {fee_tier}")
+        if reserve_ratio <= 0:
+            raise ValueError(f"reserve_ratio must be positive, got {reserve_ratio}")
+
         # Component 1: TVL Score (40% weight)
         # Using logarithmic scale: $1M = 50, $10M = 70, $100M = 90, $1B = 100
         if tvl <= 0:
